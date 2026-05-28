@@ -180,7 +180,7 @@ public class DefaultSparkBuildJobHandler implements ISparkJobHandler {
             return;
         }
         List<String> illegals = Lists.newArrayList();
-        Matcher matcher = Pattern.compile("(`[^`]*+`)|(\\$\\([^)]*+)").matcher(command);
+        Matcher matcher = Pattern.compile("(`[^`]*+`)|(\\$\\([^)]*+)|('[^']*\\|)|('[^']*;)|('[^']*&)").matcher(command);
         while (matcher.find()) {
             illegals.add(matcher.group());
         }
@@ -217,7 +217,8 @@ public class DefaultSparkBuildJobHandler implements ISparkJobHandler {
 
     protected void appendSparkConf(StringBuilder sb, String confKey, String confValue) {
         // Multiple parameters in "--conf" need to be enclosed in single quotes
-        sb.append(" --conf '").append(confKey).append(EQUALS).append(confValue).append("' ");
+        String escapedValue = confValue.replace("'", "'\\''");
+        sb.append(" --conf '").append(confKey).append(EQUALS).append(escapedValue).append("' ");
         sb.append(SUBMIT_LINE_FORMAT);
     }
 
