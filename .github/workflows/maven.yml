@@ -1,0 +1,61 @@
+# This workflow will build a Java project with Maven, and cache/restore any dependencies to improve the workflow execution time
+# For more information see: https://docs.github.com/en/actions/automating-builds-and-tests/building-and-testing-java-with-maven
+
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+
+name: Kylin5 CI
+
+on:
+  push:
+    branches: [ "pre-kylin5" ]
+  pull_request:
+    branches: [ "pre-kylin5" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+      - name: Set up JDK 8
+        uses: actions/setup-java@v5
+        with:
+          java-version: '8'
+          distribution: 'temurin'
+          cache: maven
+      - name: Build with Maven
+        run: mvn clean package -DskipTests
+
+  test:
+    runs-on: ubuntu-22.04
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        group: [
+          { name: 'UT-Group1', modules: 'src/kylin-it' },
+          { name: 'UT-Group2', modules: 'src/spark-project/kylin-internal-catalog,src/spark-project/kylin-soft-affinity-cache,src/spark-project/spark-common,src/spark-project/sparder,src/spark-project/engine-spark,src/spark-project/source-jdbc,src/spark-project/engine-build-sdk,src/spark-project/spark-it' },
+          { name: 'UT-Group3', modules: 'src/core-job,src/core-storage,src/query-common,src/query,src/core-common,src/core-metadata,src/distributed-lock-ext,src/core-metrics,src/source-hive,src/server,src/streaming,src/tool,src/datasource-sdk,src/streaming-sdk,src/modeling-service,src/rec-service,src/rec-server,src/query-service,src/datasource-service,src/data-loading-service,src/common-service,src/ops-booter,src/ops-server,src/ops-service,src/job-service,src/streaming-service,src/kylin-server-it,src/common-server,src/metadata-server,src/data-loading-server,src/query-server,src/data-loading-booter,src/query-booter,src/common-booter,src/rec-booter,src/jdbc' }
+        ]
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+      - name: Set up JDK 8
+        uses: actions/setup-java@v5
+        with:
+          java-version: '8'
+          distribution: 'temurin'
+          cache: maven
+      - name: Run tests ${{ matrix.group.name }}
+        run: mvn clean test --fail-at-end -DargLine='-Xms4G -Xmx8G' -DfailIfNoTests=false -Duser.timezone=GMT+8 -pl ${{ matrix.group.modules }} -am
+      - name: Upload test reports
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-reports-{{ matrix.group.name }}
+          path: |
+            **/target/surefire-reports/
