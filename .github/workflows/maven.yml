@@ -52,10 +52,75 @@ jobs:
           cache: maven
       - name: Run tests ${{ matrix.group.name }}
         run: mvn clean test --fail-at-end -DargLine='-Xms4G -Xmx8G' -DfailIfNoTests=false -Duser.timezone=GMT+8 -pl ${{ matrix.group.modules }} -am
+      - name: Test Failure Summary
+        if: ${{ always() }}
+        run: |
+          python3 - <<'PYEOF' > "$GITHUB_STEP_SUMMARY"
+          import glob, re
+
+          print("## ${{ matrix.group.name }} Test Results\n")
+
+          total_failed = 0
+          seen_xml_failures = set()  # avoid double-counting with TestSuite.txt
+
+          # 1) Parse JUnit-style XML for <failure> / <error> elements
+          for path in glob.glob('**/target/surefire-reports/TEST-*.xml', recursive=True):
+              import xml.etree.ElementTree as ET
+              try:
+                  root = ET.parse(path).getroot()
+              except Exception:
+                  continue
+              for tc in root.iter('testcase'):
+                  failure = tc.find('failure')
+                  error   = tc.find('error')
+                  if failure is not None or error is not None:
+                      tag = failure if failure is not None else error
+                      total_failed += 1
+                      seen_xml_failures.add(tc.get('name', ''))
+                      msg = tag.get('message', '') or ''
+                      typ = tag.get('type', '') or ''
+                      print(f"- ❌ **{tc.get('classname', '?')}** — `{tc.get('name', '?')}`")
+                      if msg:
+                          print(f"  > {typ}: {msg}")
+
+          # 2) Also scan TestSuite.txt for *** FAILED *** (ScalaTest fixture/setup failures may not appear in XML)
+          for txt in glob.glob('**/target/surefire-reports/TestSuite.txt', recursive=True):
+              with open(txt) as f:
+                  lines = f.readlines()
+              i = 0
+              while i < len(lines):
+                  line = lines[i]
+                  m = re.match(r'^- (.+) \*\*\* FAILED \*\*\*', line)
+                  if m:
+                      test_name = m.group(1).strip()
+                      # skip if already captured from XML
+                      if test_name in seen_xml_failures:
+                          i += 1
+                          continue
+                      # collect error details until next test line or empty line
+                      details = []
+                      j = i + 1
+                      while j < len(lines) and not lines[j].startswith('- ') and lines[j].strip():
+                          details.append(lines[j].strip())
+                          j += 1
+                      err_line = next((d for d in details if ':' in d), details[0] if details else '')
+                      print(f"- ❌ **ScalaTest** — `{test_name}`")
+                      if err_line:
+                          print(f"  > {err_line}")
+                      total_failed += 1
+                      i = j
+                      continue
+                  i += 1
+
+          if total_failed == 0:
+              print("✅ All tests passed.\n")
+          else:
+              print(f"\n**Total failed: {total_failed}**\n")
+          PYEOF
       - name: Upload test reports
         if: ${{ always() }}
         uses: actions/upload-artifact@v7
         with:
-          name: test-reports-{{ matrix.group.name }}
+          name: test-reports-${{ matrix.group.name }}
           path: |
             **/target/surefire-reports/
